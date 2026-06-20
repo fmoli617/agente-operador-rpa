@@ -4,19 +4,19 @@ import socket
 import getpass
 import asyncio
 import threading
-import time
 import json
 from datetime import datetime
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from agente_operador.app.notification_window import NotificationWindow
-from agente_operador.app.tray import TrayIcon
-from agente_operador.service.host import start_host, send_response
-from agente_supervisor.main import get_identity, build_report, STATUS_FILE
+from app.notification_window import NotificationWindow
+from app.task_store import TaskStore
+from app.tray import TrayIcon
+from application.task_service import TaskService
+from service.host import WebSocketTaskResponder, start_host
+from service.security import get_auth_token, get_client_ssl_context
 
-STATUS_UPDATE_INTERVAL = 60  # segundos
 HOST_PORT = 8765
 LOCK_PORT = 8764  # porta exclusiva de lock de instância única
 
@@ -42,8 +42,9 @@ def _ping_show_window(port: int):
     async def _send():
         import websockets
         try:
-            uri = f"ws://127.0.0.1:{port}"
-            async with websockets.connect(uri) as ws:
+            uri = f"wss://127.0.0.1:{port}"
+            async with websockets.connect(uri, ssl=get_client_ssl_context()) as ws:
+                await ws.send(json.dumps({"type": "auth", "token": get_auth_token()}))
                 await ws.send(json.dumps({"type": "show_window"}))
         except Exception:
             pass
@@ -63,9 +64,6 @@ class AppBridge(QObject):
     show_window = pyqtSignal()
     quit_app = pyqtSignal()
 
-    def respond(self, task_id: str, payload: dict):
-        send_response(task_id, payload)
-
 
 def _run_host(bridge: AppBridge, app: QApplication):
     loop = asyncio.new_event_loop()
@@ -75,19 +73,7 @@ def _run_host(bridge: AppBridge, app: QApplication):
         bridge.quit_app.emit()
 
 
-def _run_status_loop():
-    identity = get_identity()
-    while True:
-        try:
-            report = build_report(identity)
-            with open(STATUS_FILE, "w", encoding="utf-8") as f:
-                f.write(report)
-        except Exception:
-            pass
-        time.sleep(STATUS_UPDATE_INTERVAL)
-
-
-_LOG = os.path.join(os.path.dirname(__file__), "..", "debug_startup.log")
+_LOG = os.path.join(os.path.dirname(__file__), "debug_startup.log")
 
 
 def _log(msg: str):
@@ -110,7 +96,8 @@ def main():
     hostname = socket.gethostname()
 
     bridge = AppBridge()
-    window = NotificationWindow(username, hostname, bridge)
+    task_service = TaskService(TaskStore(), WebSocketTaskResponder())
+    window = NotificationWindow(username, hostname, task_service)
     bridge.show_notification.connect(window.show_notification)
     bridge.show_qr_code.connect(window.show_qr_code)
     bridge.login_error.connect(window.on_login_error)
@@ -129,9 +116,6 @@ def main():
 
     host_thread = threading.Thread(target=_run_host, args=(bridge, app), daemon=True)
     host_thread.start()
-
-    status_thread = threading.Thread(target=_run_status_loop, daemon=True)
-    status_thread.start()
 
     sys.exit(app.exec())
 

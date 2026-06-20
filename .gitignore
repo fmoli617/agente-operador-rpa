@@ -44,6 +44,9 @@ Thumbs.db
 credentials.json
 token.json
 
+# Segurança do host WebSocket — token + certificado TLS gerados localmente
+.secrets/
+
 # Logs
 *.log
 logs/

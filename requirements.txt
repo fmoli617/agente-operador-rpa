@@ -1,0 +1,6 @@
+PyQt6>=6.6.0
+websockets>=12.0
+pywin32>=306
+cryptography>=42.0
+qrcode>=7.0
+pillow>=10.0

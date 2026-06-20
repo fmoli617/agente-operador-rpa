@@ -17,9 +17,8 @@ def get_paths():
     pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
     if not os.path.exists(pythonw):
         pythonw = sys.executable
-    # WorkingDirectory = raiz do projeto (pai de agente_operador/)
-    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    script_path = os.path.join(root_dir, "agente_operador", "main.py")
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    script_path = os.path.join(root_dir, "main.py")
     return pythonw, script_path, root_dir
 
 
@@ -37,7 +36,7 @@ def create_desktop_shortcut(pythonw, script_path, script_dir):
     shell = win32com.client.Dispatch("WScript.Shell")
     shortcut = shell.CreateShortCut(shortcut_path)
     shortcut.Targetpath = pythonw
-    shortcut.Arguments = f'-m agente_operador.main'
+    shortcut.Arguments = '-m main'
     shortcut.WorkingDirectory = script_dir
     shortcut.Description = "Operação Assistida — Monitoramento de Tarefas"
     shortcut.WindowStyle = 7  # minimizado — evita janela de console ao iniciar
@@ -47,7 +46,6 @@ def create_desktop_shortcut(pythonw, script_path, script_dir):
 
 
 def add_to_startup(pythonw, root_dir):
-    cmd = f'"{pythonw}" -m agente_operador.main'
     # Registry não suporta WorkingDirectory — usar wrapper /D para cmd /c não funciona
     # bem; a alternativa mais limpa é usar o próprio atalho .lnk do Desktop como target.
     # Aqui gravamos o comando direto; pythonw roda sem console e -m resolve imports.

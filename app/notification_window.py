@@ -1,7 +1,6 @@
 import base64
 import json
 import winsound
-from datetime import datetime
 
 from cryptography.fernet import Fernet
 
@@ -12,6 +11,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtGui import QPixmap
 
+from app.widgets.task_row import TaskRow
+from application.task_service import TaskService
+
 WINDOW_WIDTH = 360
 WINDOW_HEIGHT = 480
 
@@ -19,93 +21,14 @@ _SESSION_KEY = Fernet.generate_key()
 _CIPHER = Fernet(_SESSION_KEY)
 
 
-def _now() -> str:
-    return datetime.now().strftime("%H:%M:%S")
-
-
-class TaskRow(QWidget):
-    def __init__(self, task_id: int, title: str, message: str, on_click):
-        super().__init__()
-        self.task_id = task_id
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        self._layout = QHBoxLayout(self)
-        self._layout.setContentsMargins(12, 10, 12, 10)
-        self._layout.setSpacing(8)
-
-        self._dot = QLabel("●")
-        self._dot.setStyleSheet("color: #22c55e; font-size: 8px; background: transparent;")
-        self._dot.setFixedWidth(10)
-        self._layout.addWidget(self._dot)
-
-        title_label = QLabel(title)
-        title_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #1a1a1a; background: transparent;")
-        self._layout.addWidget(title_label)
-        self._layout.addStretch()
-
-        self._status_label = QLabel("Aguardando login")
-        self._status_label.setStyleSheet(
-            "font-size: 10px; font-weight: bold; color: #d97706;"
-            " background: #fef3c7; border-radius: 4px; padding: 1px 6px;"
-        )
-        self._layout.addWidget(self._status_label)
-
-        self._arrow = QLabel("›")
-        self._arrow.setStyleSheet("font-size: 16px; color: #d1d5db; background: transparent; padding-left: 4px;")
-        self._layout.addWidget(self._arrow)
-
-        self.setStyleSheet("""
-            TaskRow { background: transparent; border-radius: 6px; }
-            TaskRow:hover { background: #f9fafb; }
-        """)
-        self._on_click = on_click
-
-    def set_status(self, text: str):
-        self._status_label.setText(text)
-        tl = text.lower()
-        if "erro" in tl or "inesperado" in tl:
-            style = "font-size: 10px; font-weight: bold; color: #dc2626; background: #fee2e2; border-radius: 4px; padding: 1px 6px;"
-        elif "execução" in tl or "execucao" in tl:
-            style = "font-size: 10px; font-weight: bold; color: #16a34a; background: #dcfce7; border-radius: 4px; padding: 1px 6px;"
-        elif "processamento" in tl:
-            style = "font-size: 10px; font-weight: bold; color: #2563eb; background: #dbeafe; border-radius: 4px; padding: 1px 6px;"
-        elif "encerrado" in tl or "concluído" in tl:
-            style = "font-size: 10px; font-weight: bold; color: #6b7280; background: #f3f4f6; border-radius: 4px; padding: 1px 6px;"
-        else:
-            style = "font-size: 10px; font-weight: bold; color: #d97706; background: #fef3c7; border-radius: 4px; padding: 1px 6px;"
-        self._status_label.setStyleSheet(style)
-
-    def set_finished(self, dismiss_cb):
-        """Marca a tarefa como encerrada — ponto cinza, X no lugar da seta."""
-        self._finished = True
-        self._dot.setStyleSheet("color: #9ca3af; font-size: 8px; background: transparent;")
-        self._arrow.hide()
-
-        x_btn = QPushButton("×")
-        x_btn.setFixedSize(20, 20)
-        x_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        x_btn.setStyleSheet("""
-            QPushButton {
-                color: #9ca3af; background: transparent;
-                border: none; font-size: 15px; font-weight: bold;
-            }
-            QPushButton:hover { color: #ef4444; background: #fee2e2; border-radius: 4px; }
-        """)
-        x_btn.clicked.connect(dismiss_cb)
-        self._layout.addWidget(x_btn)
-
-    def mousePressEvent(self, event):
-        if not getattr(self, '_finished', False):
-            self._on_click(self.task_id)
-
-
 class NotificationWindow(QWidget):
-    def __init__(self, username: str, hostname: str, bridge=None):
+    def __init__(self, username: str, hostname: str, task_service: TaskService):
         super().__init__()
         self.username = username
         self.hostname = hostname
-        self._bridge = bridge
-        self._tasks = []
+        self._task_service = task_service
+        self._store = task_service.store  # leitura de estado — escrita sempre via task_service
+        self._rows: dict[str, TaskRow] = {}
         self._current_task_id = ""
         self._encrypted_creds: bytes | None = None
         self._setup_window()
@@ -122,7 +45,7 @@ class NotificationWindow(QWidget):
         self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
 
     def _position_window(self):
-        screen = QApplication.primaryScreen().availableGeometry() # pyright: ignore[reportOptionalMemberAccess]
+        screen = QApplication.primaryScreen().availableGeometry()  # pyright: ignore[reportOptionalMemberAccess]
         margin = 14
         x = screen.right() - WINDOW_WIDTH - margin
         y = screen.bottom() - WINDOW_HEIGHT - margin
@@ -498,41 +421,30 @@ class NotificationWindow(QWidget):
         self.raise_()
 
     def _go_back(self):
-        task = next((t for t in self._tasks if t["task_id"] == self._current_task_id), None)
-        if not (task and task.get("finished")):
+        task = self._store.get(self._current_task_id)
+        if not (task and task.finished):
             self._encrypted_creds = None
         self._stack.setCurrentIndex(0)
 
     def _go_to_list(self):
         self._stack.setCurrentIndex(0)
 
-    def _update_task_status(self, task_id: str, status: str):
-        task = next((t for t in self._tasks if t["task_id"] == task_id), None)
-        if task:
-            task["status_text"] = status
-            if task.get("widget"):
-                task["widget"].set_status(status)
-
-    def _log_event(self, task_id: str, event: str):
-        task = next((t for t in self._tasks if t["task_id"] == task_id), None)
-        if task is not None:
-            task.setdefault("log", []).append(f"{_now()}  {event}")
+    def _refresh_row_status(self, task_id: str, status: str):
+        """Atualiza o badge de status no widget da linha — o estado em si já foi mutado pelo TaskService."""
+        row = self._rows.get(task_id)
+        if row:
+            row.set_status(status)
 
     def _set_proc_text(self, text: str):
-        """Atualiza o texto da caixa de status e persiste na task atual."""
+        """Atualiza o texto da caixa de status (UI) — persistência fica a cargo do TaskService."""
         self._proc_label.setText(text)
-        task = next((t for t in self._tasks if t["task_id"] == self._current_task_id), None)
-        if task:
-            task["proc_text"] = text
 
     def _open_detail(self, task_id: int):
-        task = next((t for t in self._tasks if t["id"] == task_id), None)
+        task = self._store.get_by_index(task_id)
         if not task:
             return
-        self._current_task_id = task["task_id"]
-        self._detail_title.setText(task["title"])
-
-        finished = task.get("finished", False)
+        self._current_task_id = task.task_id
+        self._detail_title.setText(task.title)
 
         # Reset widgets
         self._input_code.clear()
@@ -541,36 +453,31 @@ class NotificationWindow(QWidget):
         self._sep_qr.hide()
         self._qr_widget.hide()
 
-        if finished:
+        if task.finished:
             # Detalhe offline
             self._offline_badge.show()
-            session_user = task.get("session_user", "")
-            if session_user:
-                self._badge_user_label.setText(f"Sessão: {session_user}")
+            if task.session_user:
+                self._badge_user_label.setText(f"Sessão: {task.session_user}")
                 self._creds_badge.show()
             else:
                 self._creds_badge.hide()
 
-            log_lines = task.get("log", [])
-            summary = "\n".join(log_lines) if log_lines else "Sem eventos registrados."
+            summary = "\n".join(task.log) if task.log else "Sem eventos registrados."
             self._proc_label.setText(summary)
             self._processing_box.show()
             self._creds_widget.hide()
         else:
             self._offline_badge.hide()
-            session_user = task.get("session_user", "")
-            if session_user:
-                self._badge_user_label.setText(f"Sessão: {session_user}")
+            if task.session_user:
+                self._badge_user_label.setText(f"Sessão: {task.session_user}")
                 self._creds_badge.show()
-                proc_text = task.get("proc_text", "Aguardando QR Code...")
-                self._proc_label.setText(proc_text)
+                self._proc_label.setText(task.proc_text)
                 self._processing_box.show()
                 self._creds_widget.hide()
 
                 # Restaura QR se já chegou enquanto o detalhe estava fechado
-                qr_b64 = task.get("qr_image_b64")
-                if qr_b64:
-                    self._render_qr(qr_b64)
+                if task.qr_image_b64:
+                    self._render_qr(task.qr_image_b64)
             else:
                 self._creds_badge.hide()
                 self._processing_box.hide()
@@ -593,26 +500,14 @@ class NotificationWindow(QWidget):
         raw = json.dumps({"user": user, "password": password}).encode()
         self._encrypted_creds = _CIPHER.encrypt(raw)
 
-        task = next((t for t in self._tasks if t["task_id"] == self._current_task_id), None)
-        if task:
-            task["session_user"] = user
-
         self._badge_user_label.setText(f"Sessão: {user}")
         self._creds_badge.show()
         self._creds_widget.hide()
         self._set_proc_text("Aguardando QR Code...")
         self._processing_box.show()
 
-        if self._bridge and self._current_task_id:
-            self._bridge.respond(self._current_task_id, {
-                "task_id": self._current_task_id,
-                "type": "credentials",
-                "user": user,
-                "password": password,
-            })
-
-        self._log_event(self._current_task_id, "Credenciais enviadas")
-        self._update_task_status(self._current_task_id, "Aguardando QR Code")
+        self._task_service.submit_credentials(self._current_task_id, user, password)
+        self._refresh_row_status(self._current_task_id, "Aguardando QR Code")
 
     def _submit_code(self):
         code = self._input_code.text().strip()
@@ -622,17 +517,9 @@ class NotificationWindow(QWidget):
         self._ok_code_btn.setEnabled(False)
         self._set_proc_text("Em processamento...")
 
-        if self._bridge and self._current_task_id:
-            self._bridge.respond(self._current_task_id, {
-                "task_id": self._current_task_id,
-                "type": "code",
-                "code": code,
-            })
-            self._log_event(self._current_task_id, "Código enviado")
-            self._update_task_status(self._current_task_id, "Em processamento")
-            task = next((t for t in self._tasks if t["task_id"] == self._current_task_id), None)
-            if task:
-                task.pop("qr_image_b64", None)
+        if self._current_task_id:
+            self._task_service.submit_code(self._current_task_id, code)
+            self._refresh_row_status(self._current_task_id, "Em processamento")
 
         self._go_to_list()
 
@@ -640,39 +527,24 @@ class NotificationWindow(QWidget):
     #  Slots públicos                                                      #
     # ------------------------------------------------------------------ #
     def _add_task(self, title: str, message: str, task_id: str):
-        if self._empty_label.isVisible():
-            self._empty_label.hide()
-        idx = len(self._tasks)
-        row = TaskRow(idx, title, message, self._open_detail)
-        self._tasks.append({
-            "id": idx,
-            "task_id": task_id,
-            "title": title,
-            "message": message,
-            "widget": row,
-            "status_text": "Aguardando login",
-            "proc_text": "Aguardando QR Code...",
-            "log": [f"{_now()}  Tarefa recebida"],
-            "finished": False,
-        })
+        self._empty_label.hide()
+        task = self._task_service.register_task(title, message, task_id)
+        row = TaskRow(task.id, title, message, self._open_detail)
+        self._rows[task.task_id] = row
         self._tasks_layout.insertWidget(self._tasks_layout.count() - 1, row)
 
     def _dismiss_task(self, task_id: str):
         """Remove definitivamente um card encerrado da lista."""
-        task = next((t for t in self._tasks if t["task_id"] == task_id), None)
-        if not task:
-            return
-        widget = task.get("widget")
-        if widget:
-            self._tasks_layout.removeWidget(widget)
-            widget.hide()
-            widget.deleteLater()
-            task["widget"] = None
-        self._tasks = [t for t in self._tasks if t["task_id"] != task_id]
+        row = self._rows.pop(task_id, None)
+        if row:
+            self._tasks_layout.removeWidget(row)
+            row.hide()
+            row.deleteLater()
+        self._task_service.dismiss_task(task_id)
         if self._current_task_id == task_id:
             self._current_task_id = ""
             self._stack.setCurrentIndex(0)
-        if not self._tasks:
+        if self._store.is_empty():
             self._empty_label.show()
 
     def _shutdown_all(self):
@@ -686,19 +558,14 @@ class NotificationWindow(QWidget):
     @pyqtSlot(str)
     def remove_task(self, task_id: str):
         """Conexão encerrada — mantém o card como 'encerrado' na lista."""
-        task = next((t for t in self._tasks if t["task_id"] == task_id), None)
-        if not task or task.get("finished"):
+        task = self._task_service.mark_session_ended(task_id)
+        if not task:
             return
 
-        self._log_event(task_id, "Sessão encerrada")
-        task["finished"] = True
-
-        last_status = task.get("status_text", "Encerrado")
-        self._update_task_status(task_id, "Encerrado")
-
-        widget = task.get("widget")
-        if widget:
-            widget.set_finished(lambda tid=task_id: self._dismiss_task(tid))
+        self._refresh_row_status(task_id, "Encerrado")
+        row = self._rows.get(task_id)
+        if row:
+            row.set_finished(lambda tid=task_id: self._dismiss_task(tid))
 
         # Se o detalhe desta task estava aberto, volta à lista
         if self._current_task_id == task_id:
@@ -715,30 +582,26 @@ class NotificationWindow(QWidget):
 
     @pyqtSlot(str)
     def on_execution_started(self, task_id: str):
-        self._log_event(task_id, "Execução iniciada")
-        self._update_task_status(task_id, "Em execução")
+        self._task_service.mark_execution_started(task_id)
+        self._refresh_row_status(task_id, "Em execução")
         self._encrypted_creds = None
         if task_id == self._current_task_id:
             self._set_proc_text("Em execução")
 
     @pyqtSlot(str, str)
     def on_execution_error(self, task_id: str, message: str):
-        self._log_event(task_id, f"Erro inesperado: {message}")
-        self._update_task_status(task_id, "Erro inesperado")
+        self._task_service.mark_execution_error(task_id, message)
+        self._refresh_row_status(task_id, "Erro inesperado")
         if task_id == self._current_task_id:
             self._set_proc_text(f"Erro inesperado:\n{message}")
 
     @pyqtSlot(str, str)
     def on_credentials_error(self, task_id: str, message: str):
-        self._log_event(task_id, f"Erro de credenciais: {message}")
-        self._update_task_status(task_id, "Aguardando login")
+        self._task_service.mark_credentials_error(task_id, message)
+        self._refresh_row_status(task_id, "Aguardando login")
         if task_id != self._current_task_id:
             return
         self._encrypted_creds = None
-        task = next((t for t in self._tasks if t["task_id"] == task_id), None)
-        if task:
-            task.pop("session_user", None)
-            task["proc_text"] = "Aguardando QR Code..."
         self._creds_badge.hide()
         self._processing_box.hide()
         self._input_user.clear()
@@ -755,8 +618,8 @@ class NotificationWindow(QWidget):
 
     @pyqtSlot(str, str)
     def on_login_error(self, task_id: str, message: str):
-        self._log_event(task_id, "Erro de sessão — aguardando novo QR Code")
-        self._update_task_status(task_id, "Aguardando QR Code")
+        self._task_service.mark_login_error(task_id)
+        self._refresh_row_status(task_id, "Aguardando QR Code")
         if task_id != self._current_task_id:
             return
         self._input_code.clear()
@@ -785,14 +648,8 @@ class NotificationWindow(QWidget):
 
     @pyqtSlot(str, str)
     def show_qr_code(self, task_id: str, image_b64: str):
-        self._log_event(task_id, "QR Code recebido")
-        self._update_task_status(task_id, "Aguardando código")
-
-        # Persiste o QR na task para restaurar se o detalhe for reaberto
-        task = next((t for t in self._tasks if t["task_id"] == task_id), None)
-        if task:
-            task["qr_image_b64"] = image_b64
-            task["proc_text"] = "Aguardando código..."
+        self._task_service.receive_qr_code(task_id, image_b64)
+        self._refresh_row_status(task_id, "Aguardando código")
 
         if task_id != self._current_task_id:
             return
