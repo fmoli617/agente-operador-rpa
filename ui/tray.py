@@ -2,6 +2,10 @@ from PyQt6.QtWidgets import QSystemTrayIcon, QMenu, QApplication
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush
 from PyQt6.QtCore import Qt, QSize
 
+from service.logger import get_logger
+
+_logger = get_logger(__name__)
+
 
 def _build_icon() -> QIcon:
     """Gera um icone simples em runtime — sem depender de arquivo externo."""
@@ -46,7 +50,7 @@ class TrayIcon(QSystemTrayIcon):
         menu.addSeparator()
 
         quit_action = menu.addAction("Encerrar")
-        quit_action.triggered.connect(QApplication.quit)
+        quit_action.triggered.connect(self._quit)
 
         self.setContextMenu(menu)
 
@@ -55,6 +59,11 @@ class TrayIcon(QSystemTrayIcon):
             self._show_window()
 
     def _show_window(self):
+        _logger.info("janela reaberta via ícone da bandeja")
         self.window._position_window()
         self.window.show()
         self.window.raise_()
+
+    def _quit(self):
+        _logger.info("encerramento solicitado via menu da bandeja")
+        QApplication.quit()

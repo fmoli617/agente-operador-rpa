@@ -1,5 +1,5 @@
 """TaskStore agora é só repositório: busca/adiciona/remove. Regra de negócio mora em domain/task.py e application/task_service.py."""
-from app.task_store import TaskStore
+from ui.task_store import TaskStore
 
 
 def test_add_creates_task_with_defaults():

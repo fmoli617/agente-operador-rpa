@@ -1,5 +1,5 @@
-from app.notification_window import NotificationWindow
-from app.task_store import TaskStore
+from ui.notification_window import NotificationWindow
+from ui.task_store import TaskStore
 from application.task_service import TaskService
 from domain.ports import TaskResponder
 

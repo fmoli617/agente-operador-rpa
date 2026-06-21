@@ -1,4 +1,4 @@
-"""Widget de uma linha da lista de tarefas — não conhece TaskStore nem o resto do app."""
+"""Widget de uma linha da lista de tarefas — não conhece TaskStore nem o resto da UI."""
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 

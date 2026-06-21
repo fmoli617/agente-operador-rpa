@@ -1,26 +1,26 @@
 import sys
-import os
 import socket
 import getpass
 import asyncio
 import threading
 import json
-from datetime import datetime
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from app.notification_window import NotificationWindow
-from app.task_store import TaskStore
-from app.tray import TrayIcon
+from ui.notification_window import NotificationWindow
+from ui.task_store import TaskStore
+from ui.tray import TrayIcon
 from application.task_service import TaskService
 from service.host import WebSocketTaskResponder, start_host
 from service.security import get_auth_token, get_client_ssl_context
+from service.logger import configure_logging, get_logger
 
 HOST_PORT = 8765
 LOCK_PORT = 8764  # porta exclusiva de lock de instância única
 
 _lock_sock = None  # referência global — nunca pode ser garbage collected
+_logger = get_logger(__name__)
 
 
 def _acquire_lock() -> bool:
@@ -73,27 +73,21 @@ def _run_host(bridge: AppBridge, app: QApplication):
         bridge.quit_app.emit()
 
 
-_LOG = os.path.join(os.path.dirname(__file__), "debug_startup.log")
-
-
-def _log(msg: str):
-    with open(_LOG, "a", encoding="utf-8") as f:
-        f.write(f"{datetime.now().isoformat()} PID={os.getpid()} {msg}\n")
-
-
 def main():
-    _log("main() iniciado")
+    configure_logging()
+    _logger.info("main() iniciado")
     if not _acquire_lock():
-        _log("saindo — instância já ativa (lock port ocupada)")
+        _logger.info("saindo — instância já ativa (lock port ocupada)")
         _ping_show_window(HOST_PORT)
         sys.exit(0)
-    _log("lock adquirido, prosseguindo para Qt")
+    _logger.info("lock adquirido, prosseguindo para Qt")
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
     username = getpass.getuser()
     hostname = socket.gethostname()
+    _logger.info("sessão de operador: usuário=%s host=%s", username, hostname)
 
     bridge = AppBridge()
     task_service = TaskService(TaskStore(), WebSocketTaskResponder())

@@ -11,8 +11,11 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtGui import QPixmap
 
-from app.widgets.task_row import TaskRow
+from ui.widgets.task_row import TaskRow
 from application.task_service import TaskService
+from service.logger import get_logger
+
+_logger = get_logger(__name__)
 
 WINDOW_WIDTH = 360
 WINDOW_HEIGHT = 480
@@ -443,6 +446,7 @@ class NotificationWindow(QWidget):
         task = self._store.get_by_index(task_id)
         if not task:
             return
+        _logger.info("operador abriu detalhe da tarefa: task_id=%s", task.task_id)
         self._current_task_id = task.task_id
         self._detail_title.setText(task.title)
 
@@ -496,6 +500,7 @@ class NotificationWindow(QWidget):
         password = self._input_pass.text()
         if not user or not password:
             return
+        _logger.info("operador submeteu credenciais: task_id=%s user=%s", self._current_task_id, user)
 
         raw = json.dumps({"user": user, "password": password}).encode()
         self._encrypted_creds = _CIPHER.encrypt(raw)
@@ -513,6 +518,7 @@ class NotificationWindow(QWidget):
         code = self._input_code.text().strip()
         if not code:
             return
+        _logger.info("operador submeteu código de verificação: task_id=%s", self._current_task_id)
 
         self._ok_code_btn.setEnabled(False)
         self._set_proc_text("Em processamento...")
@@ -535,6 +541,7 @@ class NotificationWindow(QWidget):
 
     def _dismiss_task(self, task_id: str):
         """Remove definitivamente um card encerrado da lista."""
+        _logger.info("operador descartou card da tarefa: task_id=%s", task_id)
         row = self._rows.pop(task_id, None)
         if row:
             self._tasks_layout.removeWidget(row)
@@ -548,6 +555,7 @@ class NotificationWindow(QWidget):
             self._empty_label.show()
 
     def _shutdown_all(self):
+        _logger.info("operador solicitou encerramento de tudo via popup")
         QApplication.quit()
 
     @pyqtSlot(int)
@@ -574,6 +582,7 @@ class NotificationWindow(QWidget):
 
     @pyqtSlot(str, str, str)
     def show_notification(self, title: str, message: str, task_id: str = ""):
+        _logger.info("popup exibido para nova tarefa: task_id=%s title=%r", task_id, title)
         self._add_task(title, message, task_id)
         self._position_window()
         self.show()

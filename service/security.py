@@ -19,8 +19,12 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-SECRETS_DIR = BASE_DIR / ".secrets"
+from service.logger import get_logger
+
+_logger = get_logger(__name__)
+
+DATA_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "OperacaoAssistida"
+SECRETS_DIR = DATA_DIR / ".secrets"
 TOKEN_FILE = SECRETS_DIR / "ws_token.txt"
 CERT_FILE = SECRETS_DIR / "host_cert.pem"
 KEY_FILE = SECRETS_DIR / "host_key.pem"
@@ -37,6 +41,7 @@ def get_auth_token() -> str:
 
     token = secrets.token_urlsafe(32)
     TOKEN_FILE.write_text(token, encoding="utf-8")
+    _logger.info("novo token de autenticação gerado em %s", TOKEN_FILE)
     return token
 
 
@@ -84,3 +89,4 @@ def _generate_self_signed_cert():
         encryption_algorithm=serialization.NoEncryption(),
     ))
     CERT_FILE.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    _logger.info("novo certificado TLS autoassinado gerado em %s", CERT_FILE)

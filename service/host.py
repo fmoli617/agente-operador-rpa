@@ -21,10 +21,13 @@ import json
 import websockets
 
 from domain.ports import TaskResponder
+from service.logger import get_logger
 from service.security import get_auth_token, get_client_ssl_context, get_server_ssl_context
 
 ALREADY_RUNNING = "already_running"
 AUTH_TIMEOUT = 10  # segundos para receber o token após conectar
+
+_logger = get_logger(__name__)
 
 _pending: dict = {}   # task_id -> websocket
 _loop: asyncio.AbstractEventLoop | None = None
@@ -74,6 +77,7 @@ async def start_host(bridge, host: str = "0.0.0.0", port: int = 8765):
             return False
         if data.get("type") != "auth" or data.get("token") != token:
             await _send(websocket, {"type": "auth_error", "message": "Token inválido."})
+            _logger.warning("autenticação rejeitada de %s", websocket.remote_address)
             return False
         return True
 
@@ -81,6 +85,7 @@ async def start_host(bridge, host: str = "0.0.0.0", port: int = 8765):
         if not await _authenticate(websocket):
             await websocket.close(code=4001, reason="Unauthorized")
             return
+        _logger.info("conexão autenticada: %s", websocket.remote_address)
         connected.add(websocket)
         bridge.session_count_changed.emit(len(connected))
         try:
@@ -129,6 +134,7 @@ async def start_host(bridge, host: str = "0.0.0.0", port: int = 8765):
                     if task_id:
                         _pending[task_id] = websocket
 
+                    _logger.info("nova tarefa recebida: task_id=%s title=%r", task_id, title)
                     bridge.show_notification.emit(title, message, task_id)
                 except json.JSONDecodeError:
                     pass
@@ -141,12 +147,15 @@ async def start_host(bridge, host: str = "0.0.0.0", port: int = 8765):
             for k in dead:
                 del _pending[k]
                 bridge.task_removed.emit(k)
+            _logger.info("conexão encerrada: %s", websocket.remote_address)
 
     ssl_context = get_server_ssl_context()
     try:
         async with websockets.serve(handler, host, port, ssl=ssl_context):
+            _logger.info("host WebSocket iniciado em wss://%s:%s", host, port)
             await asyncio.Future()
     except OSError:
+        _logger.info("porta %s já em uso — outra instância está ativa", port)
         await _ping_existing(port)
         return ALREADY_RUNNING
 

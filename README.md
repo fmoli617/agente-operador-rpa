@@ -20,7 +20,7 @@ c:\projetos\agente-operador-rpa\
 │   └── ports.py                      # Interface TaskResponder — contrato com a infraestrutura
 ├── application/
 │   └── task_service.py               # Casos de uso (submit_credentials, submit_code, etc.)
-├── app/
+├── ui/
 │   ├── notification_window.py       # Orquestração da UI — chama TaskService, não conhece o protocolo
 │   ├── task_store.py                 # Repositório em memória de Task
 │   ├── tray.py                       # Ícone na system tray
@@ -28,9 +28,13 @@ c:\projetos\agente-operador-rpa\
 │       └── task_row.py                # Widget de uma linha da lista
 ├── service/
 │   ├── host.py                       # WebSocket server (porta 8765, wss://) + WebSocketTaskResponder
-│   └── security.py                   # Token de autenticação + certificado TLS
-├── install/
-│   └── create_shortcut.py            # Cria atalho no Desktop + startup do Windows
+│   ├── security.py                   # Token de autenticação + certificado TLS
+│   └── logger.py                     # Logger central — logs diários em %LOCALAPPDATA%\OperacaoAssistida\logs\
+├── installer/
+│   ├── app.spec                      # PyInstaller — empacota o app em .exe standalone
+│   ├── setup.iss                     # Inno Setup — gera o instalador (.exe) final (wizard, .conf, atalhos)
+│   ├── build.ps1                     # Script único: PyInstaller + Inno Setup
+│   └── assets/app.ico                # Ícone do app/instalador
 ├── tests/                            # Suíte de testes (ver tests/README.md)
 ├── docs/
 │   ├── ARQUITETURA.md                # Mapa da estrutura, camadas e regra de dependência
@@ -60,17 +64,58 @@ pillow>=10.0
 
 ---
 
-## Instalação
+## Instalação na máquina do operador
+
+A máquina do operador não tem (e não precisa ter) Python instalado. A distribuição é um instalador `.exe` único, gerado a partir deste repositório.
+
+### Gerar o instalador (máquina de build, com Python)
 
 ```powershell
 cd c:\projetos\agente-operador-rpa
-pip install -r requirements.txt
-python install/create_shortcut.py
+python -m venv env
+.\env\Scripts\pip install -r requirements-dev.txt
+powershell -ExecutionPolicy Bypass -File installer\build.ps1 -Version 1.0.0
 ```
 
-Isso cria o atalho **"Operação Assistida"** no Desktop e registra o app no startup do Windows (`HKCU\Run`).
+Requer [Inno Setup 6](https://jrsoftware.org/isinfo.php) instalado (`winget install -e --id JRSoftware.InnoSetup`). O resultado é `dist_installer\OperacaoAssistida-Setup-<versão>.exe` — um único arquivo, sem dependências externas, pronto para levar à máquina do operador.
 
-Para desenvolvimento (rodar a suíte de testes), instale também `requirements-dev.txt` — ver [tests/README.md](tests/README.md).
+### Instalar na máquina do operador
+
+Execute o `OperacaoAssistida-Setup-<versão>.exe`. O wizard permite escolher:
+
+- pasta de instalação (padrão: `Program Files\OperacaoAssistida`);
+- **iniciar automaticamente com o Windows** (em segundo plano, sem abrir janela — apenas o ícone na bandeja);
+- **criar atalho na área de trabalho**.
+
+Antes de instalar, uma etapa exibe o **nome da máquina**, o **usuário do Windows** e gera uma **chave de 6 dígitos** que identifica esta instalação. Essas três informações só aparecem nessa etapa e exigem que o operador marque a opção de concordância para a instalação continuar — sem isso, o instalador não avança. Ao concluir, elas são gravadas em `instalacao.conf` (formato `.ini`) dentro da própria pasta de instalação:
+
+```ini
+[instalacao]
+maquina=NOME-DA-MAQUINA
+usuario=nome.usuario
+chave_instalacao=123456
+data_instalacao=2026-06-20 22:40:32
+```
+
+Todos os arquivos do programa (incluindo `instalacao.conf` e o desinstalador) ficam na pasta de instalação escolhida — única fonte, sem espalhar arquivos pelo sistema. Dados gerados durante a execução normal (token e certificado TLS, logs diários) ficam em `%LOCALAPPDATA%\OperacaoAssistida`, já que a pasta de instalação pode não ser gravável sem privilégios de administrador.
+
+### Desinstalação
+
+Pelo Painel de Controle ("Programas e Recursos") ou pelo atalho "Desinstalar Operação Assistida" no menu Iniciar. Remove os arquivos do programa (inclusive `instalacao.conf`), o atalho, a entrada de startup no registro e os dados em `%LOCALAPPDATA%\OperacaoAssistida` (logs, token, certificado) — não deixa resíduos.
+
+### Logs
+
+`service/logger.py` grava logs diários (rotação automática à meia-noite, 30 dias de retenção) em `%LOCALAPPDATA%\OperacaoAssistida\logs\operacao_assistida.log`. Cobre o ciclo de vida do app, conexões/autenticação no WebSocket (`service/host.py`), geração de token/certificado (`service/security.py`), casos de uso (`application/task_service.py`) e interações do operador na UI (`ui/`). A gravação em disco só é ligada uma vez, no bootstrap (`main.py:configure_logging()`), para não escrever durante testes.
+
+### Desenvolvimento
+
+```powershell
+cd c:\projetos\agente-operador-rpa
+.\env\Scripts\pip install -r requirements-dev.txt
+.\env\Scripts\python main.py
+```
+
+Para rodar a suíte de testes, ver [tests/README.md](tests/README.md).
 
 ---
 
@@ -199,7 +244,8 @@ O host serve via `wss://` usando um certificado autoassinado, gerado automaticam
 - [x] Criptografia Fernet das credenciais em memória durante a sessão
 - [x] Autenticação por token no WebSocket host
 - [x] TLS (wss://) com certificado autoassinado
+- [x] Empacotamento corporativo (PyInstaller + Inno Setup) — instalador `.exe` único, wizard com escolha de pasta/atalho/startup, captura de identificação da instalação (`instalacao.conf`) e desinstalador completo
+- [x] Logger central com rotação diária (`service/logger.py`)
 - [ ] Painel de acompanhamento em execução (área reservada na UI)
 - [ ] Suporte a múltiplas tarefas simultâneas abertas
-- [ ] Empacotamento corporativo (PyInstaller + NSIS/MSI)
 - [ ] SDK do consumidor e `agente_supervisor` (mencionados em seções anteriores, ainda não existem neste repo)

@@ -59,3 +59,6 @@ reports/
 
 # BotCity
 resources/
+
+# Empacotamento — artefatos gerados pelo build, não versionar
+dist_installer/

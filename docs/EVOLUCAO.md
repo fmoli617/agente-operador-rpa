@@ -4,6 +4,43 @@ Log cronológico (mais recente no topo) das decisões estruturais do projeto. Ca
 
 ---
 
+## 2026-06-20 — Configuração da instalação (instalacao.conf) + logger central
+
+**O que mudou:** duas adições relacionadas a observabilidade e identificação da instalação:
+
+1. `installer/setup.iss` ganhou uma página customizada (Pascal Script) entre a escolha de pasta e a de tarefas: mostra o nome da máquina (`{computername}`) e o usuário do Windows (`{username}`), gera uma chave de instalação de 6 dígitos, e exige uma checkbox de consentimento explícito antes de permitir avançar (`NextButtonClick` bloqueia se não marcada). Ao concluir a instalação (`ssPostInstall`), essas três informações + timestamp são gravadas em `{app}\instalacao.conf` (formato `.ini`).
+2. Criado `service/logger.py`: logger central com `TimedRotatingFileHandler` (rotação à meia-noite, 30 dias de retenção), gravando em `%LOCALAPPDATA%\OperacaoAssistida\logs\`. Instrumentado em `main.py`, `service/host.py`, `service/security.py`, `application/task_service.py`, `ui/notification_window.py` e `ui/tray.py`. Substituiu o `_log`/`debug_startup.log` ad-hoc que existia em `main.py`.
+
+**Por quê:** a instalação precisa de uma identidade própria (máquina + usuário + chave única) para servir de base de autenticação — capturada uma vez, no momento da instalação, com consentimento explícito do operador, já que essas informações não devem ficar visíveis fora dessa etapa. O logger central existia como necessidade separada: rastrear "toda a movimentação do escopo do projeto" (conexões, casos de uso, ações do operador) em arquivos diários, em vez do log mínimo que só registrava o boot do processo.
+
+**Trade-off aceito:** `get_logger(name)` não liga a gravação em disco por si só — só devolve o `Logger`. A gravação real só começa quando `configure_logging()` é chamado explicitamente em `main()`. Essa indireção (em vez de configurar tudo dentro de `get_logger`) existe porque várias suítes de teste importam módulos como `service.host` e `application.task_service`, e isso criaria a pasta de log real do usuário (`%LOCALAPPDATA%`) só de rodar `pytest`, contaminando a máquina de quem testa. O preço é mais um passo manual (lembrar de chamar `configure_logging()` no bootstrap) se um novo entry point for criado no futuro.
+
+**Pendente:** o Pascal Script do Inno Setup usa `Random()` sem seed explícita (a função `Randomize` da RTL Delphi não existe no scripting engine do Inno) — a entropia da chave de 6 dígitos depende do gerador interno do Inno, suficiente para identificação mas não para uso criptográfico. Se a chave precisar de garantias mais fortes no futuro, gerar no primeiro boot do app (Python, com `secrets`) em vez do instalador.
+
+---
+
+## 2026-06-20 — Renomeação `app/` → `ui/`
+
+**O que mudou:** a pasta `app/` (camada de apresentação Qt) foi renomeada para `ui/`. Atualizados todos os imports (`main.py`, `application/task_service.py`, `tests/*`), `docs/ARQUITETURA.md` e `README.md`.
+
+**Por quê:** `app/` e `application/` eram nomes visualmente quase idênticos para papéis bem diferentes (UI vs. casos de uso) — confundia na leitura da árvore de pastas e nos imports. `ui/` deixa o papel óbvio à primeira vista e elimina a ambiguidade com `application/`.
+
+**Pendente:** nenhum — `docs/EVOLUCAO.md` (este arquivo) mantém entradas antigas que citam `app/...`; isso é esperado, são registro histórico do que era verdade na época, não atualizar retroativamente.
+
+---
+
+## 2026-06-20 — Empacotamento e distribuição: instalador .exe (PyInstaller + Inno Setup)
+
+**O que mudou:** criado `installer/` (`app.spec`, `setup.iss`, `build.ps1`, `assets/app.ico`) para gerar um instalador `.exe` único, sem dependência de Python na máquina do operador. O wizard (Inno Setup) permite escolher pasta de instalação, e oferece checkboxes para "iniciar com o Windows" (em background, só ícone na tray) e "criar atalho na área de trabalho". O desinstalador (gerado automaticamente) remove arquivos do programa, atalhos, entrada de registro e dados de runtime. Como consequência, `service/security.py` (token + certificado TLS) e `main.py` (`debug_startup.log`) deixaram de calcular caminhos via `__file__` (que apontaria para dentro da pasta de instalação, normalmente sem permissão de escrita sem admin) e passaram a usar `%LOCALAPPDATA%\OperacaoAssistida`. Removido `install/create_shortcut.py` (substituído pelo instalador).
+
+**Por quê:** o app vai para a máquina do operador, que não tem Python instalado e cujo acesso é só presencial/pontual (quem instala é a equipe responsável pelo projeto) — não dá pra depender de `pip install` + script manual. Separar "arquivos do programa" (pasta de instalação, pode ser somente leitura) de "dados de runtime" (sempre gravável, por usuário) é o que torna a instalação possível em `Program Files` sem exigir elevação para o uso do dia a dia.
+
+**Trade-off aceito:** a entrada de startup (`HKCU\Run`) é gravada na conta do usuário que executa o instalador — se a instalação for feita com um usuário diferente do operador (ex.: conta de admin de TI), a tarefa de startup não vale para a conta do operador. Por ora aceitável porque quem instala faz isso logado como/para o próprio operador.
+
+**Pendente:** não há assinatura de código (code signing) no `.exe` gerado — SmartScreen do Windows pode alertar na primeira execução. Avaliar certificado de assinatura se isso virar fricção na distribuição.
+
+---
+
 ## 2026-06-20 — Clean Architecture: domain/ + application/ isolando regra de negócio e protocolo
 
 **O que mudou:** o estado de tarefa deixou de ser um `dict` solto e virou uma entidade real (`domain/task.py:Task`), com seus próprios métodos de transição (`set_status`, `register_session`, `mark_finished`, etc.). Foi criada uma porta de domínio `domain/ports.py:TaskResponder` (interface abstrata) e um caso de uso `application/task_service.py:TaskService`, que é a única camada que conhece tanto o `TaskStore` (agora um repositório puro) quanto o `TaskResponder`. `service/host.py` passou a implementar essa porta via `WebSocketTaskResponder`. `app/notification_window.py` não monta mais o JSON do protocolo (`{"type": "credentials", ...}`) — chama `task_service.submit_credentials(...)` e pronto.

@@ -3,7 +3,7 @@ TaskService é a única camada que conhece tanto o estado (TaskStore) quanto o
 protocolo de resposta (TaskResponder). Testado aqui com um responder fake —
 nunca precisa de WebSocket real para validar a regra de negócio.
 """
-from app.task_store import TaskStore
+from ui.task_store import TaskStore
 from application.task_service import TaskService
 from domain.ports import TaskResponder
 

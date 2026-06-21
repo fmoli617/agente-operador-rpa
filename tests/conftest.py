@@ -1,3 +1,4 @@
+import logging
 import os
 import shutil
 import sys
@@ -9,6 +10,19 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def isolated_logs(tmp_path, monkeypatch):
+    """Redireciona service.logger para um diretório descartável — testes nunca escrevem no log real do usuário."""
+    from service import logger
+    fake_dir = tmp_path / "logs"
+    monkeypatch.setattr(logger, "LOG_DIR", fake_dir)
+    monkeypatch.setattr(logger, "_configured", False)
+    yield fake_dir
+    for handler in logging.getLogger(logger._ROOT_NAME).handlers[:]:
+        handler.close()
+        logging.getLogger(logger._ROOT_NAME).removeHandler(handler)
 
 
 @pytest.fixture(scope="session")
