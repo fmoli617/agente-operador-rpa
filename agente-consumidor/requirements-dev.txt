@@ -1,0 +1,5 @@
+-r requirements.txt
+qrcode>=7.0
+pillow>=10.0
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

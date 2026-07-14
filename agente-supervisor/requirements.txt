@@ -1,0 +1,1 @@
+# sem dependências externas — usa só stdlib (socket, subprocess, hashlib, argparse)

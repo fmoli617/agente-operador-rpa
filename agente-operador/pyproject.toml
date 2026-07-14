@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "agente-operador"
+version = "1.0.0"
+description = "App Windows silencioso que torna a máquina do operador um host WebSocket para autorizar tarefas RPA"
+requires-python = ">=3.14"
+dependencies = [
+    "PyQt6>=6.6.0",
+    "websockets>=12.0",
+    "pywin32>=306",
+    "cryptography>=42.0",
+    "qrcode>=7.0",
+    "pillow>=10.0",
+]
+
+[project.scripts]
+agente-operador = "main:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["domain*", "application*", "ui*", "service*"]
