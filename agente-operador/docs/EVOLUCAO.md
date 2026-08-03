@@ -4,6 +4,30 @@ Log cronológico (mais recente no topo) das decisões estruturais do projeto. Ca
 
 ---
 
+## 2026-08-03 — Correção: startup automático abria a janela (deveria ficar só na bandeja)
+
+**O que mudou:** `main.py` agora só chama `window.show()` se `"--minimized" not in sys.argv`. `installer/setup.iss` passou a incluir `--minimized` na `ValueData` do registro `HKCU\...\Run` gerado pela task `startupicon` — o atalho normal do menu/desktop (`[Icons]`) e o "abrir agora" pós-instalação (`[Run]`) continuam sem a flag, abrindo a janela normalmente.
+
+**Por quê:** a descrição da task `startupicon` (`installer/setup.iss:35`) sempre prometeu "iniciar automaticamente com o Windows, em segundo plano, sem abrir janela — apenas o ícone na bandeja", mas o código nunca implementava essa distinção: `window.show()` era incondicional. Descoberto testando o instalador `.exe` de ponta a ponta pela primeira vez (build real via `installer/build.ps1`, instalação/desinstalação reais na máquina de desenvolvimento): reinstalei marcando a opção de startup, conferi o comando gravado no registro, matei o processo e rodei esse comando exato manualmente — a janela abriu, contrariando a UI de instalação.
+
+**Trade-off aceito:** nenhum — é uma correção direta de um bug de comportamento, sem indireção nova.
+
+**Pendente:** validado manualmente (rebuild do `.exe`, reinstalação com a task marcada, comando do registro reproduzido → só ícone; clique no ícone → janela abre normal, sem regressão) e a suíte automatizada (41 passed) segue verde, mas não há teste automatizado cobrindo especificamente o parsing de `--minimized` em `main()` — `app.exec()` bloqueia, o que dificulta testar isso na suíte atual sem mockar mais a inicialização do Qt.
+
+---
+
+## 2026-08-03 — Credenciais salvas por sistema (`CredentialStore`)
+
+**O que mudou:** `Task` (domain) ganhou o campo `system`, populado a partir do `host_name` que chega em toda tarefa (protocolo já garantia `host == process` para o conceito de "sistema" usado pelo `agente-bot`, ex. `analitico`). Novo port `domain/ports.py:CredentialStore` (`get`/`save`/`forget`), implementado em `service/credential_store.py:FileCredentialStore` — guarda `{sistema: {user, password}}` cifrado com Fernet em `.secrets/credenciais.enc` (chave em `.secrets/credenciais.key`). `TaskService` ganhou `saved_credentials(system)` (para a UI pré-preencher) e passou a chamar `credential_store.save(...)` em `submit_credentials` e `credential_store.forget(...)` em `mark_credentials_error`. `service/host.py` e `main.py` (`AppBridge.show_notification`) passaram a propagar o `system` até `ui/notification_window.py`, que pré-preenche `_input_user`/`_input_pass` no `_open_detail` quando há credencial salva.
+
+**Por quê:** o mesmo sistema (ex. `analitico`) pode ser alvo de várias tarefas ao longo do tempo, e o operador humano tinha que redigitar usuário/senha em toda tarefa — decisão tomada em conversa com o usuário (ver `doc_version.md`, seção 2.2): salvar a credencial por sistema no `agente-operador` (não no bot), reaproveitada entre sessões, mantendo o popup de confirmação humana sempre obrigatório (nunca pula a etapa de clicar OK) e nunca persistindo QR/MFA (sempre solicitado do zero em toda sessão).
+
+**Trade-off aceito:** todo o blob de credenciais fica num único arquivo cifrado (`credenciais.enc`), decifrado e recifrado por inteiro a cada `get`/`save`/`forget` — sem índice/consulta parcial. Aceitável na escala atual (poucos sistemas por instalação); se crescer muito, considerar um arquivo por sistema ou um formato mais granular.
+
+**Pendente:** validado com testes automatizados (suíte completa do `agente-operador`: 41 passed, incluindo `test_credential_store.py` novo e 3 casos novos em `test_task_service.py`) — ainda não validado manualmente com o operador rodando de verdade (a demonstração manual anterior, em `doc_version.md` seção 2.3.1, foi antes desta mudança). Próximo passo natural: repetir aquele teste manual e confirmar visualmente que a segunda tarefa do mesmo sistema já chega com usuário/senha pré-preenchidos no popup.
+
+---
+
 ## 2026-06-20 — Configuração da instalação (instalacao.conf) + logger central
 
 **O que mudou:** duas adições relacionadas a observabilidade e identificação da instalação:

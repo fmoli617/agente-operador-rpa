@@ -135,7 +135,7 @@ async def start_host(bridge, host: str = "0.0.0.0", port: int = 8765):
                         _pending[task_id] = websocket
 
                     _logger.info("nova tarefa recebida: task_id=%s title=%r", task_id, title)
-                    bridge.show_notification.emit(title, message, task_id)
+                    bridge.show_notification.emit(title, message, task_id, host_name)
                 except json.JSONDecodeError:
                     pass
         except websockets.exceptions.ConnectionClosed:

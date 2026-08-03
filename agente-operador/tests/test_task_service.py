@@ -5,7 +5,7 @@ nunca precisa de WebSocket real para validar a regra de negócio.
 """
 from ui.task_store import TaskStore
 from application.task_service import TaskService
-from domain.ports import TaskResponder
+from domain.ports import CredentialStore, TaskResponder
 
 
 class FakeResponder(TaskResponder):
@@ -20,10 +20,31 @@ class FakeResponder(TaskResponder):
         self.codes_sent.append((task_id, code))
 
 
+class FakeCredentialStore(CredentialStore):
+    def __init__(self):
+        self._data = {}
+
+    def get(self, system):
+        return self._data.get(system)
+
+    def save(self, system, user, password):
+        self._data[system] = {"user": user, "password": password}
+
+    def forget(self, system):
+        self._data.pop(system, None)
+
+
 def _service():
     responder = FakeResponder()
     service = TaskService(TaskStore(), responder)
     return service, responder
+
+
+def _service_with_credential_store():
+    responder = FakeResponder()
+    credential_store = FakeCredentialStore()
+    service = TaskService(TaskStore(), responder, credential_store)
+    return service, responder, credential_store
 
 
 def test_submit_credentials_registers_session_and_responds():
@@ -96,6 +117,36 @@ def test_dismiss_task_removes_from_store():
     service.register_task("Host - Proc", "msg", "task-1")
     service.dismiss_task("task-1")
     assert service.store.get("task-1") is None
+
+
+def test_submit_credentials_saves_to_credential_store_by_system():
+    service, responder, credential_store = _service_with_credential_store()
+    service.register_task("analitico - analitico", "msg", "task-1", "analitico")
+
+    service.submit_credentials("task-1", "joao", "senha123")
+
+    assert credential_store.get("analitico") == {"user": "joao", "password": "senha123"}
+
+
+def test_saved_credentials_prefill_available_before_submit():
+    service, _, credential_store = _service_with_credential_store()
+    credential_store.save("analitico", "joao", "senha-salva")
+    service.register_task("analitico - analitico", "msg", "task-1", "analitico")
+
+    assert service.saved_credentials("analitico") == {"user": "joao", "password": "senha-salva"}
+    assert service.saved_credentials("sistema-sem-credencial") is None
+    assert service.saved_credentials(None) is None
+
+
+def test_mark_credentials_error_forgets_saved_credential_for_system():
+    service, _, credential_store = _service_with_credential_store()
+    service.register_task("analitico - analitico", "msg", "task-1", "analitico")
+    service.submit_credentials("task-1", "joao", "senha-errada")
+    assert credential_store.get("analitico") is not None
+
+    service.mark_credentials_error("task-1", "Usuário ou senha incorretos.")
+
+    assert credential_store.get("analitico") is None
 
 
 def test_operations_on_unknown_task_id_are_safe_noops():

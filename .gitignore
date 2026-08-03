@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Virtualenvs
+env/
+venv/
+.venv/
+
+# Base de dados gerada — só schema.sql/seed.py são versionados
+db/usuarios.db

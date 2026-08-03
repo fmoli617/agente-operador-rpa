@@ -89,7 +89,7 @@ async def test_full_task_flow_with_valid_token(running_host):
 
     await asyncio.sleep(0.2)  # tempo do handler processar a desconexão
 
-    assert bridge.show_notification.received == [("SRV1 - Login", "", "task-abc")]
+    assert bridge.show_notification.received == [("SRV1 - Login", "", "task-abc", "SRV1")]
     assert bridge.show_qr_code.received == [("task-abc", "AAAA")]
     assert bridge.execution_started.received == [("task-abc",)]
     assert bridge.task_removed.received == [("task-abc",)]

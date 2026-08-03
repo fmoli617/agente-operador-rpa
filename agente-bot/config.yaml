@@ -1,0 +1,7 @@
+app_name: rpa000_teste
+
+operador:
+  machine: 127.0.0.1
+  port: 8765
+  # token: lido de OPERADOR_WS_TOKEN (env) — não commitar aqui
+  cafile: null  # caminho para .secrets/host_cert.pem do operador; null = sem pinning (dev)

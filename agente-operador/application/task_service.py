@@ -4,7 +4,7 @@ quanto a forma de responder ao consumidor (TaskResponder). A UI chama estes
 métodos; nunca conhece o formato das mensagens do protocolo.
 """
 from ui.task_store import TaskStore
-from domain.ports import TaskResponder
+from domain.ports import CredentialStore, TaskResponder
 from domain.task import Task
 from service.logger import get_logger
 
@@ -12,18 +12,26 @@ _logger = get_logger(__name__)
 
 
 class TaskService:
-    def __init__(self, store: TaskStore, responder: TaskResponder):
+    def __init__(self, store: TaskStore, responder: TaskResponder, credential_store: CredentialStore | None = None):
         self._store = store
         self._responder = responder
+        self._credential_store = credential_store
 
     @property
     def store(self) -> TaskStore:
         """Acesso de leitura ao estado das tarefas — escrita sempre passa pelos métodos abaixo."""
         return self._store
 
-    def register_task(self, title: str, message: str, task_id: str) -> Task:
-        _logger.info("tarefa registrada: task_id=%s title=%r", task_id, title)
-        return self._store.add(title, message, task_id)
+    def register_task(self, title: str, message: str, task_id: str, system: str | None = None) -> Task:
+        _logger.info("tarefa registrada: task_id=%s title=%r system=%r", task_id, title, system)
+        return self._store.add(title, message, task_id, system)
+
+    def saved_credentials(self, system: str | None) -> dict | None:
+        """Credencial salva para o sistema, se houver — usada pela UI para pré-preencher o
+        formulário. O popup de confirmação humana continua obrigatório mesmo com dado salvo."""
+        if not system or not self._credential_store:
+            return None
+        return self._credential_store.get(system)
 
     def submit_credentials(self, task_id: str, user: str, password: str) -> None:
         task = self._store.get(task_id)
@@ -31,6 +39,8 @@ class TaskService:
             return
         task.register_session(user)
         self._responder.send_credentials(task_id, user, password)
+        if self._credential_store and task.system:
+            self._credential_store.save(task.system, user, password)
         task.log_event("Credenciais enviadas")
         task.set_status("Aguardando QR Code")
         _logger.info("credenciais enviadas: task_id=%s user=%s", task_id, user)
@@ -75,6 +85,8 @@ class TaskService:
         task = self._store.get(task_id)
         if not task:
             return
+        if self._credential_store and task.system:
+            self._credential_store.forget(task.system)
         task.log_event(f"Erro de credenciais: {message}")
         task.set_status("Aguardando login")
         task.clear_session()

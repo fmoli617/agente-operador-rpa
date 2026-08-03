@@ -13,6 +13,7 @@ class Task:
     task_id: str
     title: str
     message: str
+    system: str | None = None
     status: str = "Aguardando login"
     proc_text: str = "Aguardando QR Code..."
     session_user: str | None = None

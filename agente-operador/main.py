@@ -12,6 +12,7 @@ from ui.notification_window import NotificationWindow
 from ui.task_store import TaskStore
 from ui.tray import TrayIcon
 from application.task_service import TaskService
+from service.credential_store import FileCredentialStore
 from service.host import WebSocketTaskResponder, start_host
 from service.security import get_auth_token, get_client_ssl_context
 from service.logger import configure_logging, get_logger
@@ -53,7 +54,7 @@ def _ping_show_window(port: int):
 
 class AppBridge(QObject):
     """Ponte thread-safe entre o WebSocket host e a UI Qt."""
-    show_notification = pyqtSignal(str, str, str)   # title, message, task_id
+    show_notification = pyqtSignal(str, str, str, str)  # title, message, task_id, system
     show_qr_code = pyqtSignal(str, str)             # task_id, image_b64
     login_error = pyqtSignal(str, str)              # task_id, message
     credentials_error = pyqtSignal(str, str)        # task_id, message
@@ -90,7 +91,7 @@ def main():
     _logger.info("sessão de operador: usuário=%s host=%s", username, hostname)
 
     bridge = AppBridge()
-    task_service = TaskService(TaskStore(), WebSocketTaskResponder())
+    task_service = TaskService(TaskStore(), WebSocketTaskResponder(), FileCredentialStore())
     window = NotificationWindow(username, hostname, task_service)
     bridge.show_notification.connect(window.show_notification)
     bridge.show_qr_code.connect(window.show_qr_code)
@@ -106,7 +107,8 @@ def main():
     tray = TrayIcon(window)
     tray.show()
 
-    window.show()
+    if "--minimized" not in sys.argv:
+        window.show()
 
     host_thread = threading.Thread(target=_run_host, args=(bridge, app), daemon=True)
     host_thread.start()

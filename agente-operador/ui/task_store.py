@@ -19,8 +19,8 @@ class TaskStore:
     def get_by_index(self, idx: int) -> Task | None:
         return next((t for t in self._tasks if t.id == idx), None)
 
-    def add(self, title: str, message: str, task_id: str) -> Task:
-        task = Task(id=self._next_id, task_id=task_id, title=title, message=message)
+    def add(self, title: str, message: str, task_id: str, system: str | None = None) -> Task:
+        task = Task(id=self._next_id, task_id=task_id, title=title, message=message, system=system)
         self._next_id += 1
         self._tasks.append(task)
         return task

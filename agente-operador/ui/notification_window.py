@@ -493,6 +493,13 @@ class NotificationWindow(QWidget):
                 self._input_pass.clear()
                 self._encrypted_creds = None
 
+                # Pré-preenche com credencial salva para o sistema, se houver — o operador
+                # ainda precisa clicar OK para confirmar/enviar (popup nunca é pulado).
+                saved = self._task_service.saved_credentials(task.system)
+                if saved:
+                    self._input_user.setText(saved.get("user", ""))
+                    self._input_pass.setText(saved.get("password", ""))
+
         self._stack.setCurrentIndex(1)
 
     def _submit_credentials(self):
@@ -532,9 +539,9 @@ class NotificationWindow(QWidget):
     # ------------------------------------------------------------------ #
     #  Slots públicos                                                      #
     # ------------------------------------------------------------------ #
-    def _add_task(self, title: str, message: str, task_id: str):
+    def _add_task(self, title: str, message: str, task_id: str, system: str | None = None):
         self._empty_label.hide()
-        task = self._task_service.register_task(title, message, task_id)
+        task = self._task_service.register_task(title, message, task_id, system)
         row = TaskRow(task.id, title, message, self._open_detail)
         self._rows[task.task_id] = row
         self._tasks_layout.insertWidget(self._tasks_layout.count() - 1, row)
@@ -580,10 +587,10 @@ class NotificationWindow(QWidget):
             self._encrypted_creds = None
             self._stack.setCurrentIndex(0)
 
-    @pyqtSlot(str, str, str)
-    def show_notification(self, title: str, message: str, task_id: str = ""):
+    @pyqtSlot(str, str, str, str)
+    def show_notification(self, title: str, message: str, task_id: str = "", system: str = ""):
         _logger.info("popup exibido para nova tarefa: task_id=%s title=%r", task_id, title)
-        self._add_task(title, message, task_id)
+        self._add_task(title, message, task_id, system or None)
         self._position_window()
         self.show()
         self.raise_()
